@@ -349,6 +349,8 @@ def incident_form_page(error_msg=None, values=None):
     severity = html.escape(str(vals.get("severity", "3")))
     tags = html.escape(vals.get("tags", "jealousy, gaslighting, blame-shifting"))
     notes = html.escape(vals.get("notes", ""))
+    show = html.escape(vals.get("show", ""))
+    category = html.escape(vals.get("category", ""))
     error_html = f'<div class="error">🚩 {html.escape(error_msg)}</div>' if error_msg else ""
     brand_icon = red_flag_svg(size=28, fill="#ff4d4d", extra_class="mini-flag")
     body = f"""
@@ -376,6 +378,14 @@ def incident_form_page(error_msg=None, values=None):
             <label for="notes">Notes</label>
             <textarea id="notes" name="notes" placeholder="What happened? Include timing, context, quotes if needed.">{notes}</textarea>
           </div>
+          <div class="field">
+          <label for="show">Show</label>
+          <input id="show" name="show" type="text" placeholder="e.g., House of the Dragon" value="{show}">
+          </div>
+          <div class="field">
+          <label for="category">Category (comma-separated)</label>
+          <input id="category" name="category" type="text" placeholder="e.g., romance, betrayal" value="{category}">
+          </div>
           <div class="row">
             <a class="btn" href="/incidents" style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.2);">Back to list</a>
             <button class="btn" type="submit">Save incident</button>
@@ -400,8 +410,14 @@ def incidents_list_page(username, incidents, filter_character=""):
             notes = html.escape(inc.get("notes",""))
             tags = inc.get("tags", [])
             severity = inc.get("severity", 3)
+            show = html.escape(inc.get("show", ""))
+            categories = inc.get("categories", [])
             tag_html = " ".join(f'<span class="tag">{html.escape(tag)}</span>' for tag in tags)
             items_html.append(f"""
+            <div style="margin-top:6px;">
+            <span class="pill">📺 {show or "—"}</span>
+            {" ".join(f'<span class="tag">{html.escape(c)}</span>' for c in categories)}
+             </div>
               <div class="incident">
                 <div class="top">
                   <div>
@@ -421,6 +437,14 @@ def incidents_list_page(username, incidents, filter_character=""):
           <label for="character">Filter by character</label>
           <input id="character" name="character" type="text" placeholder="e.g., Cassian" value="{filt_safe}">
         </div>
+        <div class="field">
+        <label for="show">Show</label>
+         <input id="show" name="show" type="text" placeholder="e.g., House of the Dragon" value="{html.escape(show_filter)}">
+         </div>
+         <div class="field">
+         <label for="category">Category</label>
+         <input id="category" name="category" type="text" placeholder="e.g., betrayal" value="{html.escape(category_filter)}">
+         </div>
         <div class="row" style="gap:8px;">
           <button class="btn" type="submit">Apply</button>
           <a class="btn" href="/incidents" style="background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.2);">Clear</a>
@@ -510,10 +534,17 @@ class RedFlagHandler(http.server.BaseHTTPRequestHandler):
 
             if parsed.path == "/incidents":
                 params = urllib.parse.parse_qs(parsed.query or "")
-                filt = (params.get("character", [""])[0] or "").strip()
+                character_filter = (params.get("character", [""])[0] or "").strip().lower()
+                show_filter = (params.get("show", [""])[0] or "").strip().lower()
+                category_filter = (params.get("category", [""])[0] or "").strip().lower()
                 all_inc = list(get_user_incidents(username))
-                if filt:
-                    all_inc = [i for i in all_inc if i["character"].lower() == filt.lower()]
+                if character_filter:
+                  all_inc = [i for i in all_inc if i["character"].lower() == character_filter]
+                  
+                  if show_filter:
+                    all_inc = [i for i in all_inc if i.get("show", "").lower() == show_filter]
+                    if category_filter:
+                      all_inc = [i for i in all_inc if category_filter in [c.lower() for c in i.get("categories", [])]]
                 # Show newest first
                 all_inc.sort(key=lambda x: x["ts"], reverse=True)
                 self.respond_html(incidents_list_page(username, all_inc, filter_character=filt))
@@ -603,6 +634,9 @@ class RedFlagHandler(http.server.BaseHTTPRequestHandler):
             severity_raw = (data.get("severity", [""])[0] or "").strip()
             tags_raw = (data.get("tags", [""])[0] or "")
             notes = (data.get("notes", [""])[0] or "").strip()
+            show = (data.get("show", [""])[0] or "").strip()
+            category_raw = (data.get("category", [""])[0] or "")
+            categories = [c.strip() for c in category_raw.split(",") if c.strip()]
 
             # Basic validation
             if not character:
@@ -622,13 +656,15 @@ class RedFlagHandler(http.server.BaseHTTPRequestHandler):
 
             tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
             record = {
-                "id": self._next_incident_id(username),
-                "ts": time.time(),
-                "character": character,
-                "severity": severity,
-                "tags": tags,
-                "notes": notes,
-            }
+              "id": self._next_incident_id(username),
+              "ts": time.time(),
+              "character": character,
+              "severity": severity,
+              "tags": tags,
+              "notes": notes,
+              "show": show,
+              "categories": categories,
+              }
             get_user_incidents(username).append(record)
 
             # Redirect to list (PRG pattern)
