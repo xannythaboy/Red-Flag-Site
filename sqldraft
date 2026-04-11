@@ -1,1 +1,334 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
+import http.server
+import socketserver
+import urllib.parse
+import secrets
+import time
+import html
+import hashlib
+import os
+import oracledb
+
+PORT = 8080
+
+# --- DB CONFIG ---
+DB_USER = "COMP122_w26_zak_15"
+DB_PASSWORD = "1234"
+DB_DSN = oracledb.makedsn("199.212.26.208", 1521, sid="SQLD")
+
+def get_connection():
+    return oracledb.connect(
+        user=DB_USER,
+        password=DB_PASSWORD,
+        dsn=DB_DSN
+    )
+
+# --- SESSION STORE (keep in memory) ---
+SESSIONS = {}
+
+MAX_POST_BYTES = 16 * 1024
+
+# ---------- Password hashing ----------
+
+def hash_password(password: str, salt: bytes = None):
+    if salt is None:
+        salt = os.urandom(16)
+    pwd = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=64)
+    return salt, pwd
+
+def verify_password(password: str, salt: bytes, expected_hash: bytes) -> bool:
+    computed = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=64)
+    return secrets.compare_digest(computed, expected_hash)
+
+# ---------- Utilities ----------
+
+def parse_cookies(cookie_header):
+    cookies = {}
+    if not cookie_header:
+        return cookies
+    for part in cookie_header.split(";"):
+        if "=" in part:
+            k, v = part.strip().split("=", 1)
+            cookies[k] = v
+    return cookies
+
+def get_authenticated_username(handler):
+    cookies = parse_cookies(handler.headers.get("Cookie"))
+    sid = cookies.get("session_id")
+    if not sid:
+        return None
+    session = SESSIONS.get(sid)
+    if not session:
+        return None
+    return session.get("username")
+
+def create_session(handler, username: str):
+    session_id = secrets.token_urlsafe(24)
+    SESSIONS[session_id] = {"username": username, "created": time.time()}
+    handler.send_header(
+        "Set-Cookie",
+        f"session_id={session_id}; HttpOnly; Path=/; SameSite=Lax"
+    )
+
+# ---------- DB FUNCTIONS ----------
+
+def create_user(username, password):
+    salt, pwd_hash = hash_password(password)
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO users (username, salt, password_hash, created)
+        VALUES (:1, :2, :3, :4)
+    """, (username, salt, pwd_hash, time.time()))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def get_user(username):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT username, salt, password_hash
+        FROM users
+        WHERE LOWER(username) = :1
+    """, [username.lower()])
+
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row
+
+def save_incident(username, character, severity, notes, show, tags, categories):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    incident_id_var = cur.var(int)
+
+    cur.execute("""
+        INSERT INTO incidents (username, ts, character, severity, notes, show)
+        VALUES (:1, :2, :3, :4, :5, :6)
+        RETURNING id INTO :7
+    """, (username, time.time(), character, severity, notes, show, incident_id_var))
+
+    incident_id = incident_id_var.getvalue()[0]
+
+    for tag in tags:
+        cur.execute("INSERT INTO incident_tags VALUES (:1, :2)", (incident_id, tag))
+
+    for cat in categories:
+        cur.execute("INSERT INTO incident_categories VALUES (:1, :2)", (incident_id, cat))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def get_incidents(username, character_filter="", show_filter="", category_filter=""):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, ts, character, severity, notes, show
+        FROM incidents
+        WHERE username = :1
+    """, [username])
+
+    rows = cur.fetchall()
+    results = []
+
+    for row in rows:
+        inc_id, ts, character, severity, notes, show = row
+
+        cur.execute("SELECT tag FROM incident_tags WHERE incident_id=:1", [inc_id])
+        tags = [r[0] for r in cur.fetchall()]
+
+        cur.execute("SELECT category FROM incident_categories WHERE incident_id=:1", [inc_id])
+        categories = [r[0] for r in cur.fetchall()]
+
+        results.append({
+            "id": inc_id,
+            "ts": ts,
+            "character": character,
+            "severity": severity,
+            "notes": notes,
+            "show": show,
+            "tags": tags,
+            "categories": categories
+        })
+
+    cur.close()
+    conn.close()
+
+    # --- filtering ---
+    if character_filter:
+        results = [i for i in results if character_filter in i["character"].lower()]
+
+    if show_filter:
+        results = [i for i in results if show_filter in (i["show"] or "").lower()]
+
+    if category_filter:
+        results = [
+            i for i in results
+            if category_filter in [c.lower() for c in i["categories"]]
+        ]
+
+    results.sort(key=lambda x: x["ts"], reverse=True)
+    return results
+
+# ---------- SIMPLE HTML ----------
+
+def simple_page(title, body):
+    return f"""
+    <html>
+    <head><title>{title}</title></head>
+    <body>
+    <h1>{title}</h1>
+    {body}
+    </body>
+    </html>
+    """
+
+# ---------- HANDLER ----------
+
+class Handler(http.server.BaseHTTPRequestHandler):
+
+    def do_GET(self):
+
+        if self.path == "/":
+            self.respond(simple_page("Login", """
+            <form method="post" action="/login">
+                Username: <input name="username"><br>
+                Password: <input name="password" type="password"><br>
+                <button>Login</button>
+            </form>
+            <a href="/register">Register</a>
+            """))
+            return
+
+        if self.path == "/register":
+            self.respond(simple_page("Register", """
+            <form method="post" action="/register">
+                Username: <input name="username"><br>
+                Password: <input name="password"><br>
+                Confirm: <input name="password2"><br>
+                <button>Register</button>
+            </form>
+            """))
+            return
+
+        if self.path == "/dashboard":
+            user = get_authenticated_username(self)
+            if not user:
+                self.redirect("/")
+                return
+
+            self.respond(simple_page("Dashboard", f"""
+            Welcome {user}<br>
+            <a href="/incidents">View Incidents</a><br>
+            <a href="/incidents/new">Add Incident</a><br>
+            """))
+            return
+
+        if self.path == "/incidents":
+            user = get_authenticated_username(self)
+            if not user:
+                self.redirect("/")
+                return
+
+            incs = get_incidents(user)
+
+            html_list = ""
+            for i in incs:
+                html_list += f"<p>{i['character']} (Severity {i['severity']})</p>"
+
+            self.respond(simple_page("Incidents", html_list))
+            return
+
+        if self.path == "/incidents/new":
+            self.respond(simple_page("New Incident", """
+            <form method="post" action="/incidents/new">
+                Character: <input name="character"><br>
+                Severity: <input name="severity"><br>
+                Notes: <input name="notes"><br>
+                Show: <input name="show"><br>
+                Tags: <input name="tags"><br>
+                Categories: <input name="category"><br>
+                <button>Save</button>
+            </form>
+            """))
+            return
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        data = urllib.parse.parse_qs(self.rfile.read(length).decode())
+
+        if self.path == "/register":
+            u = data["username"][0]
+            p = data["password"][0]
+            p2 = data["password2"][0]
+
+            if p != p2:
+                self.respond("Passwords mismatch")
+                return
+
+            create_user(u, p)
+            self.redirect("/")
+            return
+
+        if self.path == "/login":
+            u = data["username"][0]
+            p = data["password"][0]
+
+            row = get_user(u)
+
+            if row:
+                db_user, salt, pwd = row
+                if verify_password(p, salt, pwd):
+                    self.send_response(302)
+                    self.send_header("Location", "/dashboard")
+                    create_session(self, db_user)
+                    self.end_headers()
+                    return
+
+            self.respond("Login failed")
+            return
+
+        if self.path == "/incidents/new":
+            user = get_authenticated_username(self)
+
+            save_incident(
+                user,
+                data["character"][0],
+                int(data["severity"][0]),
+                data["notes"][0],
+                data["show"][0],
+                data["tags"][0].split(","),
+                data["category"][0].split(","),
+            )
+
+            self.redirect("/incidents")
+
+    def respond(self, text):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(text.encode())
+
+    def redirect(self, loc):
+        self.send_response(302)
+        self.send_header("Location", loc)
+        self.end_headers()
+
+# ---------- RUN ----------
+
+def run():
+    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+        print(f"Running on http://localhost:{PORT}")
+        httpd.serve_forever()
+
+if __name__ == "__main__":
+    run()
