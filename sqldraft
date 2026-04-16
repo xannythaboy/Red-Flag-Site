@@ -91,35 +91,34 @@ def get_user_db(username):
 
 # ================= UI =================
 def page(title, body, user=None):
-
-    # CLEAN floating red flags ONLY (no weird symbols)
-    flags = "".join('<div class="flag">🚩</div>' for _ in range(12))
+    flags = "".join('<div class="flag">🚩</div>' for _ in range(18))
 
     return f"""
     <html>
     <head>
+        <meta charset="UTF-8">
         <title>{title}</title>
 
         <style>
         body {{
             margin:0;
-            font-family: Arial;
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            font-family: 'Segoe UI', Arial;
+            background: linear-gradient(135deg, #1a002b, #3a0ca3, #ff0054);
             color:white;
             overflow-x:hidden;
         }}
 
-        /* NAVBAR */
         .nav {{
             display:flex;
-            gap:15px;
-            padding:15px;
-            background: rgba(0,0,0,0.45);
-            backdrop-filter: blur(10px);
+            gap:20px;
+            padding:18px;
+            background: rgba(0,0,0,0.4);
+            backdrop-filter: blur(12px);
         }}
 
         .nav b {{
-            color:#ff4d4d;
+            color:#ff4d6d;
+            font-size:20px;
         }}
 
         .nav a {{
@@ -127,65 +126,85 @@ def page(title, body, user=None):
             text-decoration:none;
         }}
 
-        /* FLOATING FLAGS (ONLY 🚩 - FIXED BUG) */
+        .nav a:hover {{
+            color:#ff4d6d;
+        }}
+
         .flag {{
             position:fixed;
-            font-size:22px;
-            opacity:0.15;
-            animation: floatUp 12s linear infinite;
+            font-size:24px;
+            opacity:0.12;
+            animation: floatUp linear infinite;
         }}
 
-        .flag:nth-child(odd) {{ left:10%; }}
-        .flag:nth-child(even) {{ left:80%; }}
+        .flag:nth-child(odd) {{
+            left:10%;
+            animation-duration: 14s;
+        }}
+
+        .flag:nth-child(even) {{
+            left:85%;
+            animation-duration: 18s;
+        }}
 
         @keyframes floatUp {{
-            0% {{ transform:translateY(110vh); }}
-            100% {{ transform:translateY(-20vh); }}
+            0% {{ transform:translateY(110vh) rotate(0deg); }}
+            100% {{ transform:translateY(-20vh) rotate(360deg); }}
         }}
 
-        /* LAYOUT */
         .container {{
             max-width:900px;
             margin:auto;
-            padding:25px;
+            padding:30px;
         }}
 
         h2 {{
-            color:#ff5f6d;
+            color:#ff4d6d;
         }}
 
-        /* CARDS */
         .card {{
-            background: rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.12);
             padding:18px;
-            border-radius:14px;
-            margin:12px 0;
+            border-radius:16px;
+            margin:15px 0;
+            backdrop-filter: blur(15px);
             border:1px solid rgba(255,255,255,0.2);
-            backdrop-filter: blur(10px);
+            transition:0.3s;
+        }}
+
+        .card:hover {{
+            transform: translateY(-5px);
         }}
 
         input, textarea {{
             width:100%;
             padding:10px;
-            margin-top:5px;
+            margin-top:6px;
             border-radius:10px;
             border:none;
+            background: rgba(255,255,255,0.15);
+            color:white;
         }}
 
         button {{
             margin-top:10px;
             padding:10px 14px;
             border:none;
-            border-radius:10px;
+            border-radius:12px;
             cursor:pointer;
-            font-weight:bold;
-            background: linear-gradient(135deg, #ff2b2b, #ff5f6d);
+            background: linear-gradient(135deg, #ff0054, #ff4d6d);
             color:white;
         }}
 
-        button:hover {{
-            transform:scale(1.05);
+        .delete-btn {{
+            background: linear-gradient(135deg, #6a040f, #d00000);
         }}
+
+        .sev1 {{ color:#4cc9f0; }}
+        .sev2 {{ color:#90dbf4; }}
+        .sev3 {{ color:#f9c74f; }}
+        .sev4 {{ color:#f3722c; }}
+        .sev5 {{ color:#ff0054; font-weight:bold; }}
         </style>
     </head>
 
@@ -218,31 +237,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if self.path == "/":
             self.respond(page("Login", """
-                <div class="card">
-                    <form method="post" action="/login">
-                        Username:<br><input name="username"><br>
-                        Password:<br><input type="password" name="password"><br>
-                        <button>Login</button>
-                    </form>
-
-                    <br>
-                    <a href="/register">
-                        <button type="button">Create Account</button>
-                    </a>
-                </div>
+                <form method="post" action="/login">
+                    Username:<input name="username">
+                    Password:<input type="password" name="password">
+                    <button>Login</button>
+                </form>
+                <a href="/register"><button>Create Account</button></a>
             """))
             return
 
         if self.path == "/register":
             self.respond(page("Register", """
-                <div class="card">
-                    <form method="post" action="/register">
-                        Username:<br><input name="username"><br>
-                        Password:<br><input type="password" name="password"><br>
-                        Confirm:<br><input type="password" name="password2"><br>
-                        <button>Create Account</button>
-                    </form>
-                </div>
+                <form method="post" action="/register">
+                    Username:<input name="username">
+                    Password:<input type="password" name="password">
+                    Confirm:<input type="password" name="password2">
+                    <button>Create</button>
+                </form>
             """))
             return
 
@@ -250,12 +261,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not user:
                 self.redirect("/")
                 return
-
-            self.respond(page("Dashboard", f"""
-                <div class="card">
-                    Welcome <b>{html.escape(user)}</b>
-                </div>
-            """, user))
+            self.respond(page("Dashboard", f"Welcome <b>{html.escape(user)}</b>", user))
             return
 
         if self.path == "/logout":
@@ -270,11 +276,39 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             conn = get_connection()
             cur = conn.cursor()
-            cur.execute("SELECT character, severity FROM incidents WHERE username=:1", [user])
+
+            cur.execute("""
+                SELECT id, character, severity, notes
+                FROM incidents
+                WHERE username=:1
+            """, [user])
 
             items = ""
-            for c, s in cur.fetchall():
-                items += f"<div class='card'>🚩 {html.escape(c)} — Severity {s}</div>"
+            for i, c, s, n in cur.fetchall():
+
+                emojis = ["🙂","😐","⚠️","🔥","💀"]
+                emoji = emojis[s-1] if 1 <= s <= 5 else "🚩"
+
+                items += f"""
+                <div class='card'>
+                    <div class="sev{s}">
+                        🚩 {html.escape(c)} — Severity {s} {emoji}
+                    </div>
+                    <br>
+                    {html.escape(n)}<br><br>
+
+                    <a href="/incidents/edit?id={i}">
+                        <button>✏️ Edit</button>
+                    </a>
+
+                    <form method="post" action="/incidents/delete" style="display:inline;">
+                        <input type="hidden" name="id" value="{i}">
+                        <button class="delete-btn" onclick="return confirm('Delete this?')">
+                            💣 Delete
+                        </button>
+                    </form>
+                </div>
+                """
 
             cur.close()
             conn.close()
@@ -288,17 +322,55 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return
 
             self.respond(page("Add Incident", """
-                <div class="card">
-                    <form method="post" action="/incidents/new">
-                        Character:<br><input name="character"><br>
-                        Severity (1-5):<br><input name="severity"><br>
-                        Notes:<br><textarea name="notes"></textarea><br>
-                        Show:<br><input name="show"><br>
-                        <button>Save</button>
-                    </form>
-                </div>
+                <form method="post" action="/incidents/new">
+                    Character:<input name="character">
+                    Severity:<input name="severity">
+                    Notes:<textarea name="notes"></textarea>
+                    <button>Save</button>
+                </form>
             """, user))
             return
+
+        if self.path.startswith("/incidents/edit"):
+            if not user:
+                self.redirect("/")
+                return
+
+            query = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(query)
+            incident_id = params.get("id", [""])[0]
+
+            conn = get_connection()
+            cur = conn.cursor()
+
+            cur.execute("""
+                SELECT character, severity, notes
+                FROM incidents
+                WHERE id=:1 AND username=:2
+            """, [incident_id, user])
+
+            row = cur.fetchone()
+            cur.close()
+            conn.close()
+
+            if not row:
+                self.respond(page("Error", "Not found", user))
+                return
+
+            c, s, n = row
+
+            self.respond(page("Edit Incident", f"""
+                <form method="post" action="/incidents/edit">
+                    <input type="hidden" name="id" value="{incident_id}">
+                    Character:<input name="character" value="{html.escape(c)}">
+                    Severity:<input name="severity" value="{s}">
+                    Notes:<textarea name="notes">{html.escape(n)}</textarea>
+                    <button>Update</button>
+                </form>
+            """, user))
+            return
+
+        self.send_error(404)
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -316,8 +388,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             try:
                 create_user(u, p)
-            except Exception as e:
-                self.respond(page("Register", f"Error: {e}"))
+            except:
+                self.respond(page("Register", "User already exists"))
                 return
 
             self.redirect("/")
@@ -332,11 +404,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             if row:
                 db_user, salt, pwd = row
-
-                if isinstance(salt, memoryview):
-                    salt = salt.tobytes()
-                if isinstance(pwd, memoryview):
-                    pwd = pwd.tobytes()
+                if isinstance(salt, memoryview): salt = salt.tobytes()
+                if isinstance(pwd, memoryview): pwd = pwd.tobytes()
 
                 if verify_password(p, salt, pwd):
                     self.send_response(302)
@@ -348,25 +417,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(page("Login", "Login failed 🚩"))
             return
 
-        # INCIDENT
+        # ADD INCIDENT
         if self.path == "/incidents/new":
             user = get_user(self)
             if not user:
                 self.redirect("/")
                 return
 
+            severity = int(data.get("severity", ["1"])[0])
+
             conn = get_connection()
             cur = conn.cursor()
 
             cur.execute("""
-                INSERT INTO incidents (username, character, severity, notes, show, ts)
-                VALUES (:1, :2, :3, :4, :5, :6)
+                INSERT INTO incidents (username, character, severity, notes, ts)
+                VALUES (:1, :2, :3, :4, :5)
             """, (
                 user,
                 data.get("character", [""])[0],
-                int(data.get("severity", ["1"])[0]),
+                severity,
                 data.get("notes", [""])[0],
-                data.get("show", [""])[0],
                 time.time()
             ))
 
@@ -375,12 +445,69 @@ class Handler(http.server.BaseHTTPRequestHandler):
             conn.close()
 
             self.redirect("/incidents")
+            return
+
+        # EDIT INCIDENT
+        if self.path == "/incidents/edit":
+            user = get_user(self)
+            if not user:
+                self.redirect("/")
+                return
+
+            incident_id = data.get("id", [""])[0]
+            severity = int(data.get("severity", ["1"])[0])
+
+            conn = get_connection()
+            cur = conn.cursor()
+
+            cur.execute("""
+                UPDATE incidents
+                SET character=:1, severity=:2, notes=:3
+                WHERE id=:4 AND username=:5
+            """, (
+                data.get("character", [""])[0],
+                severity,
+                data.get("notes", [""])[0],
+                incident_id,
+                user
+            ))
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            self.redirect("/incidents")
+            return
+
+        # DELETE INCIDENT
+        if self.path == "/incidents/delete":
+            user = get_user(self)
+            if not user:
+                self.redirect("/")
+                return
+
+            incident_id = data.get("id", [""])[0]
+
+            conn = get_connection()
+            cur = conn.cursor()
+
+            cur.execute("""
+                DELETE FROM incidents
+                WHERE id=:1 AND username=:2
+            """, [incident_id, user])
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            self.redirect("/incidents")
+            return
 
     def respond(self, html_text):
         self.send_response(200)
-        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Type", "text/html; charset=utf-8")
         self.end_headers()
-        self.wfile.write(html_text.encode())
+        self.wfile.write(html_text.encode("utf-8"))
 
     def redirect(self, loc):
         self.send_response(302)
