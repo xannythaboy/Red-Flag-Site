@@ -21,16 +21,17 @@ def get_connection():
 # ================= SESSION =================
 SESSIONS = {}
 
-# ================= PASSWORD HASH =================
+# ================= AUTH =================
 def hash_password(password, salt=None):
     if salt is None:
         salt = os.urandom(16)
-    pwd_hash = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=64)
-    return salt, pwd_hash
+    return salt, hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=64)
 
 def verify_password(password, salt, stored):
-    computed = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=64)
-    return secrets.compare_digest(computed, stored)
+    return secrets.compare_digest(
+        hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=64),
+        stored
+    )
 
 # ================= COOKIES =================
 def parse_cookies(header):
@@ -58,254 +59,165 @@ def destroy_session(handler):
     if sid in SESSIONS:
         del SESSIONS[sid]
 
-# ================= DB =================
-def create_user(username, password):
-    salt, pwd_hash = hash_password(password)
-
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        INSERT INTO users (username, salt, password_hash, created)
-        VALUES (:1, :2, :3, :4)
-    """, (username, salt, pwd_hash, time.time()))
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-def get_user_db(username):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT username, salt, password_hash
-        FROM users
-        WHERE LOWER(username) = :1
-    """, [username.lower()])
-
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return row
-
-# ================= UI =================
+# ================= PAGE =================
 def page(title, body, user=None):
-    flags = "".join('<div class="flag">🚩</div>' for _ in range(18))
-
     return f"""
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>{title}</title>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>{title}</title>
 
-        <style>
-        body {{
-            margin:0;
-            font-family: 'Segoe UI', Arial;
-            background: linear-gradient(135deg, #1a002b, #3a0ca3, #ff0054);
-            color:white;
-            overflow-x:hidden;
-        }}
+<style>
+body {{
+    margin: 0;
+    font-family: Segoe UI, Arial;
+    background: linear-gradient(135deg, #0b0014, #2b004f, #ff0054);
+    color: white;
+}}
 
-        .nav {{
-            display:flex;
-            gap:20px;
-            padding:18px;
-            background: rgba(0,0,0,0.4);
-            backdrop-filter: blur(12px);
-        }}
+.nav {{
+    display: flex;
+    gap: 15px;
+    padding: 15px;
+    background: rgba(0,0,0,0.5);
+}}
 
-        .nav b {{
-            color:#ff4d6d;
-            font-size:20px;
-        }}
+.nav a {{
+    color: white;
+    text-decoration: none;
+    font-weight: bold;
+}}
 
-        .nav a {{
-            color:white;
-            text-decoration:none;
-        }}
+.card {{
+    background: rgba(255,255,255,0.12);
+    padding: 14px;
+    margin: 10px 0;
+    border-radius: 12px;
+}}
 
-        .nav a:hover {{
-            color:#ff4d6d;
-        }}
+button {{
+    background: linear-gradient(135deg, #ff0054, #ff4d6d);
+    border: none;
+    padding: 6px 10px;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+}}
 
-        .flag {{
-            position:fixed;
-            font-size:24px;
-            opacity:0.12;
-            animation: floatUp linear infinite;
-        }}
+input, textarea {{
+    padding: 6px;
+    border-radius: 8px;
+    border: none;
+    width: 100%;
+    margin-top: 5px;
+}}
+</style>
+</head>
 
-        .flag:nth-child(odd) {{
-            left:10%;
-            animation-duration: 14s;
-        }}
+<body>
 
-        .flag:nth-child(even) {{
-            left:85%;
-            animation-duration: 18s;
-        }}
+<div class="nav">
+<b>🚩 Red Flag Tracker</b>
+<a href="/dashboard">Home</a>
+<a href="/incidents">Incidents</a>
+<a href="/incidents/new">Add</a>
+{"<a href='/logout'>Logout</a>" if user else ""}
+</div>
 
-        @keyframes floatUp {{
-            0% {{ transform:translateY(110vh) rotate(0deg); }}
-            100% {{ transform:translateY(-20vh) rotate(360deg); }}
-        }}
+<div style="padding:20px;">
+<h2>{title}</h2>
+{body}
+</div>
 
-        .container {{
-            max-width:900px;
-            margin:auto;
-            padding:30px;
-        }}
-
-        h2 {{
-            color:#ff4d6d;
-        }}
-
-        .card {{
-            background: rgba(255,255,255,0.12);
-            padding:18px;
-            border-radius:16px;
-            margin:15px 0;
-            backdrop-filter: blur(15px);
-            border:1px solid rgba(255,255,255,0.2);
-            transition:0.3s;
-        }}
-
-        .card:hover {{
-            transform: translateY(-5px);
-        }}
-
-        input, textarea {{
-            width:100%;
-            padding:10px;
-            margin-top:6px;
-            border-radius:10px;
-            border:none;
-            background: rgba(255,255,255,0.15);
-            color:white;
-        }}
-
-        button {{
-            margin-top:10px;
-            padding:10px 14px;
-            border:none;
-            border-radius:12px;
-            cursor:pointer;
-            background: linear-gradient(135deg, #ff0054, #ff4d6d);
-            color:white;
-        }}
-
-        .delete-btn {{
-            background: linear-gradient(135deg, #6a040f, #d00000);
-        }}
-
-        .sev1 {{ color:#4cc9f0; }}
-        .sev2 {{ color:#90dbf4; }}
-        .sev3 {{ color:#f9c74f; }}
-        .sev4 {{ color:#f3722c; }}
-        .sev5 {{ color:#ff0054; font-weight:bold; }}
-        </style>
-    </head>
-
-    <body>
-
-    <div class="nav">
-        <b>🚩 Red Flag Tracker</b>
-        <a href="/dashboard">Home</a>
-        <a href="/incidents">Incidents</a>
-        <a href="/incidents/new">Add</a>
-        {"<a href='/logout'>Logout</a>" if user else ""}
-    </div>
-
-    {flags}
-
-    <div class="container">
-        <h2>{title}</h2>
-        {body}
-    </div>
-
-    </body>
-    </html>
-    """
+</body>
+</html>
+"""
 
 # ================= SERVER =================
 class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         user = get_user(self)
+        path = self.path.split("?")[0]
 
-        if self.path == "/":
+        if path == "/":
             self.respond(page("Login", """
                 <form method="post" action="/login">
                     Username:<input name="username">
                     Password:<input type="password" name="password">
                     <button>Login</button>
                 </form>
-                <a href="/register"><button>Create Account</button></a>
             """))
             return
 
-        if self.path == "/register":
-            self.respond(page("Register", """
-                <form method="post" action="/register">
-                    Username:<input name="username">
-                    Password:<input type="password" name="password">
-                    Confirm:<input type="password" name="password2">
-                    <button>Create</button>
-                </form>
-            """))
+        if path == "/dashboard":
+            self.respond(page("Dashboard", f"Welcome {html.escape(user or '')}", user))
             return
 
-        if self.path == "/dashboard":
-            if not user:
-                self.redirect("/")
-                return
-            self.respond(page("Dashboard", f"Welcome <b>{html.escape(user)}</b>", user))
-            return
-
-        if self.path == "/logout":
+        if path == "/logout":
             destroy_session(self)
-            self.redirect("/")
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie", "session_id=; Path=/; Max-Age=0")
+            self.end_headers()
             return
 
-        if self.path == "/incidents":
-            if not user:
-                self.redirect("/")
-                return
-
+        if path == "/incidents":
             conn = get_connection()
             cur = conn.cursor()
 
             cur.execute("""
-                SELECT id, character, severity, notes
+                SELECT id, username, character, severity, notes
                 FROM incidents
-                WHERE username=:1
-            """, [user])
+                ORDER BY id DESC
+            """)
 
-            items = ""
-            for i, c, s, n in cur.fetchall():
+            rows = cur.fetchall()
+            out = ""
+
+            for i, owner, c, s, n in rows:
 
                 emojis = ["🙂","😐","⚠️","🔥","💀"]
+                try:
+                    s = int(s)
+                except:
+                    s = 1
+
                 emoji = emojis[s-1] if 1 <= s <= 5 else "🚩"
 
-                items += f"""
-                <div class='card'>
-                    <div class="sev{s}">
-                        🚩 {html.escape(c)} — Severity {s} {emoji}
-                    </div>
-                    <br>
-                    {html.escape(n)}<br><br>
+                cur2 = conn.cursor()
+                cur2.execute("""
+                    SELECT username, comment_text
+                    FROM comments
+                    WHERE incident_id=:1
+                    ORDER BY id
+                """, [i])
+                comments = cur2.fetchall()
+                cur2.close()
 
-                    <a href="/incidents/edit?id={i}">
-                        <button>✏️ Edit</button>
-                    </a>
+                comment_html = ""
+                for cu, ct in comments:
+                    comment_html += f"<div class='card'>💬 <b>{cu}</b>: {ct}</div>"
 
-                    <form method="post" action="/incidents/delete" style="display:inline;">
+                out += f"""
+                <div class="card">
+                    🚩 <b>{c}</b> — Severity {s} {emoji}<br>
+                    <small>by {owner}</small><br><br>
+                    {n}<br><br>
+
+                    {comment_html}
+
+                    <form method="post" action="/comment">
+                        <input type="hidden" name="incident_id" value="{i}">
+                        <input name="comment" placeholder="Write comment">
+                        <button>Comment</button>
+                    </form>
+
+                    <a href="/edit?id={i}"><button>Edit</button></a>
+
+                    <form method="post" action="/delete" style="display:inline;">
                         <input type="hidden" name="id" value="{i}">
-                        <button class="delete-btn" onclick="return confirm('Delete this?')">
-                            💣 Delete
-                        </button>
+                        <button>Delete</button>
                     </form>
                 </div>
                 """
@@ -313,14 +225,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             cur.close()
             conn.close()
 
-            self.respond(page("Incidents", items, user))
+            self.respond(page("Incidents", out, user))
             return
 
-        if self.path == "/incidents/new":
-            if not user:
-                self.redirect("/")
-                return
-
+        if path == "/incidents/new":
             self.respond(page("Add Incident", """
                 <form method="post" action="/incidents/new">
                     Character:<input name="character">
@@ -331,113 +239,35 @@ class Handler(http.server.BaseHTTPRequestHandler):
             """, user))
             return
 
-        if self.path.startswith("/incidents/edit"):
-            if not user:
-                self.redirect("/")
-                return
-
-            query = urllib.parse.urlparse(self.path).query
-            params = urllib.parse.parse_qs(query)
-            incident_id = params.get("id", [""])[0]
-
-            conn = get_connection()
-            cur = conn.cursor()
-
-            cur.execute("""
-                SELECT character, severity, notes
-                FROM incidents
-                WHERE id=:1 AND username=:2
-            """, [incident_id, user])
-
-            row = cur.fetchone()
-            cur.close()
-            conn.close()
-
-            if not row:
-                self.respond(page("Error", "Not found", user))
-                return
-
-            c, s, n = row
-
-            self.respond(page("Edit Incident", f"""
-                <form method="post" action="/incidents/edit">
-                    <input type="hidden" name="id" value="{incident_id}">
-                    Character:<input name="character" value="{html.escape(c)}">
-                    Severity:<input name="severity" value="{s}">
-                    Notes:<textarea name="notes">{html.escape(n)}</textarea>
-                    <button>Update</button>
-                </form>
-            """, user))
-            return
-
         self.send_error(404)
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         data = urllib.parse.parse_qs(self.rfile.read(length).decode())
 
-        # REGISTER
-        if self.path == "/register":
-            u = data.get("username", [""])[0]
-            p = data.get("password", [""])[0]
-            p2 = data.get("password2", [""])[0]
-
-            if p != p2:
-                self.respond(page("Register", "Passwords do not match"))
-                return
-
-            try:
-                create_user(u, p)
-            except:
-                self.respond(page("Register", "User already exists"))
-                return
-
-            self.redirect("/")
-            return
-
-        # LOGIN
         if self.path == "/login":
             u = data.get("username", [""])[0]
-            p = data.get("password", [""])[0]
-
-            row = get_user_db(u)
-
-            if row:
-                db_user, salt, pwd = row
-                if isinstance(salt, memoryview): salt = salt.tobytes()
-                if isinstance(pwd, memoryview): pwd = pwd.tobytes()
-
-                if verify_password(p, salt, pwd):
-                    self.send_response(302)
-                    self.send_header("Location", "/dashboard")
-                    create_session(self, db_user)
-                    self.end_headers()
-                    return
-
-            self.respond(page("Login", "Login failed 🚩"))
+            self.send_response(302)
+            create_session(self, u)
+            self.send_header("Location", "/dashboard")
+            self.end_headers()
             return
 
-        # ADD INCIDENT
         if self.path == "/incidents/new":
             user = get_user(self)
-            if not user:
-                self.redirect("/")
-                return
-
-            severity = int(data.get("severity", ["1"])[0])
 
             conn = get_connection()
             cur = conn.cursor()
 
             cur.execute("""
                 INSERT INTO incidents (username, character, severity, notes, ts)
-                VALUES (:1, :2, :3, :4, :5)
+                VALUES (:1,:2,:3,:4,:5)
             """, (
                 user,
                 data.get("character", [""])[0],
-                severity,
+                int(data.get("severity", ["1"])[0]),
                 data.get("notes", [""])[0],
-                time.time()
+                int(time.time())
             ))
 
             conn.commit()
@@ -447,54 +277,62 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.redirect("/incidents")
             return
 
-        # EDIT INCIDENT
-        if self.path == "/incidents/edit":
+        # ================= FIXED COMMENT =================
+        if self.path == "/comment":
             user = get_user(self)
+
             if not user:
                 self.redirect("/")
                 return
 
-            incident_id = data.get("id", [""])[0]
-            severity = int(data.get("severity", ["1"])[0])
+            conn = get_connection()
+            cur = conn.cursor()
 
+            cur.execute("""
+                INSERT INTO comments (incident_id, username, comment_text, ts)
+                VALUES (:1,:2,:3,:4)
+            """, (
+                data.get("incident_id", [""])[0],
+                user,
+                data.get("comment", [""])[0],
+                int(time.time())
+            ))
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            self.redirect("/incidents")
+            return
+
+        if self.path == "/delete":
+            conn = get_connection()
+            cur = conn.cursor()
+
+            cur.execute("DELETE FROM incidents WHERE id=:1",
+                        [data.get("id", [""])[0]])
+
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            self.redirect("/incidents")
+            return
+
+        if self.path == "/edit":
             conn = get_connection()
             cur = conn.cursor()
 
             cur.execute("""
                 UPDATE incidents
                 SET character=:1, severity=:2, notes=:3
-                WHERE id=:4 AND username=:5
+                WHERE id=:4
             """, (
                 data.get("character", [""])[0],
-                severity,
+                int(data.get("severity", ["1"])[0]),
                 data.get("notes", [""])[0],
-                incident_id,
-                user
+                data.get("id", [""])[0]
             ))
-
-            conn.commit()
-            cur.close()
-            conn.close()
-
-            self.redirect("/incidents")
-            return
-
-        # DELETE INCIDENT
-        if self.path == "/incidents/delete":
-            user = get_user(self)
-            if not user:
-                self.redirect("/")
-                return
-
-            incident_id = data.get("id", [""])[0]
-
-            conn = get_connection()
-            cur = conn.cursor()
-
-            cur.execute("""
-                DELETE FROM incidents
-                WHERE id=:1 AND username=:2
-            """, [incident_id, user])
 
             conn.commit()
             cur.close()
@@ -514,7 +352,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Location", loc)
         self.end_headers()
 
-# ================= RUN =================
+
 def run():
     with socketserver.TCPServer(("", PORT), Handler) as httpd:
         print("Running on http://localhost:8080")
