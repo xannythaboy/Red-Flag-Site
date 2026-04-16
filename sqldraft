@@ -59,7 +59,7 @@ def destroy_session(handler):
     if sid in SESSIONS:
         del SESSIONS[sid]
 
-# ================= UI =================
+# ================= PAGE =================
 def page(title, body, user=None):
     return f"""
     <html>
@@ -87,11 +87,6 @@ def page(title, body, user=None):
             font-weight: bold;
         }}
 
-        .nav a:hover {{
-            color: #ff4d6d;
-        }}
-
-        /* BUBBLE BUTTONS */
         button {{
             background: linear-gradient(135deg, #ff0054, #ff4d6d);
             color: white;
@@ -100,13 +95,7 @@ def page(title, body, user=None):
             border-radius: 50px;
             cursor: pointer;
             font-weight: bold;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            transition: 0.2s;
             margin-top: 5px;
-        }}
-
-        button:hover {{
-            transform: scale(1.05);
         }}
 
         .card {{
@@ -151,12 +140,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
         user = get_user(self)
         path = self.path.split("?")[0]
 
+        # LOGIN PAGE
         if path == "/":
             self.respond(page("Login", """
                 <form method="post" action="/login">
                     Username:<br><input name="username"><br>
                     Password:<br><input type="password" name="password"><br>
                     <button>Login 🚀</button>
+                </form>
+                <br>
+                <a href="/register">Create Account</a>
+            """))
+            return
+
+        # REGISTER PAGE (RESTORED)
+        if path == "/register":
+            self.respond(page("Create Account", """
+                <form method="post" action="/register">
+                    Username:<br><input name="username"><br>
+                    Password:<br><input type="password" name="password"><br>
+                    <button>Create Account ✨</button>
                 </form>
             """))
             return
@@ -170,7 +173,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.redirect("/")
             return
 
-        # ---------- INCIDENT LIST ----------
+        # INCIDENTS
         if path == "/incidents":
             conn = get_connection()
             cur = conn.cursor()
@@ -221,11 +224,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         <button>💬 Comment</button>
                     </form>
 
-                    <br>
-
                     <a href="/edit?id={i}"><button>✏️ Edit</button></a>
 
-                    <form method="post" action="/delete" style="display:inline;">
+                    <form method="post" action="/delete">
                         <input type="hidden" name="id" value="{i}">
                         <button>🗑️ Delete</button>
                     </form>
@@ -238,7 +239,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.respond(page("Incidents", html_out, user))
             return
 
-        # ---------- ADD ----------
+        # ADD INCIDENT
         if path == "/incidents/new":
             self.respond(page("Add Incident", """
                 <form method="post" action="/incidents/new">
@@ -250,7 +251,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             """, user))
             return
 
-        # ---------- EDIT PAGE ----------
+        # EDIT PAGE
         if path == "/edit":
             incident_id = urllib.parse.parse_qs(
                 urllib.parse.urlparse(self.path).query
@@ -293,7 +294,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         data = urllib.parse.parse_qs(self.rfile.read(length).decode())
 
-        # login
+        # LOGIN
         if self.path == "/login":
             u = data.get("username", [""])[0]
             self.send_response(302)
@@ -302,7 +303,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        # add
+        # REGISTER (RESTORED)
+        if self.path == "/register":
+            self.redirect("/")
+            return
+
+        # ADD INCIDENT
         if self.path == "/incidents/new":
             user = get_user(self)
 
@@ -327,7 +333,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.redirect("/incidents")
             return
 
-        # comment
+        # COMMENT
         if self.path == "/comment":
             user = get_user(self)
 
@@ -351,7 +357,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.redirect("/incidents")
             return
 
-        # edit SAVE FIXED
+        # EDIT SAVE
         if self.path == "/edit":
             conn = get_connection()
             cur = conn.cursor()
@@ -376,7 +382,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.redirect("/incidents")
             return
 
-        # delete
+        # DELETE
         if self.path == "/delete":
             conn = get_connection()
             cur = conn.cursor()
